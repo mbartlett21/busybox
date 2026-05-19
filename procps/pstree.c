@@ -40,6 +40,11 @@ struct child;
 # define COMM_DISP_LEN COMM_LEN
 #endif
 
+#if ENABLE_PLATFORM_MINGW32
+// PROC is already a type name on Windows
+#define PROC PROC_PSTREE
+#endif
+
 typedef struct proc {
 	char comm[COMM_DISP_LEN + 1];
 //	char flags; - unused, delete?
