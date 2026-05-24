@@ -2853,7 +2853,23 @@ static char *expand_args(char *args)
 		} else if (*s == '#') {
 			replace = alt_filename;
 		} else {
-			if (*s == '\\' && s[1] != '\0') {
+			/* To be correct according to vim, only a single slash is deleted,
+			 * and only when it is immediately before a % or # .
+			 * That way normal escapes don't need to be doubled. */
+
+			/* Examples from vim: (current_filename = test)
+			 * :!echo '%'     => test
+			 * :!echo '\%'    => %
+			 * :!echo '\\%'   => \%
+			 * :!echo '\\\%'  => \\%
+			 */
+			if (*s == '\\' &&
+#if ENABLE_PLATFORM_MINGW32
+				(s[1] == '%' || s[1] == '#')
+#else
+				s[1] != '\0'
+#endif
+			) {
 				char *t;
 				for (t = s; *t; t++)
 					*t = t[1];
