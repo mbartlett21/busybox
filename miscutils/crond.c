@@ -312,7 +312,12 @@ static void ParseField(char *user, char *ary, int modvalue, int off,
 		 * in the character array appropriately.
 		 */
 		if (n2 < 0) {
+#if ENABLE_PLATFORM_MINGW32
+			/* allow ranges like 5/10 to expand to 5,15,25,35,45,55, rather than just 5 */
+			n2 = (*ptr == '/') ? modvalue - 1 : n1;
+#else
 			n2 = n1;
+#endif
 		}
 		if (*ptr == '/') {
 			char *endp;
