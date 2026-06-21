@@ -612,7 +612,12 @@ extern int dprintf(int fd, const char *format, ...);
 
 #ifndef HAVE_MEMRCHR
 #include <stddef.h>
-extern void *memrchr(const void *s, int c, size_t n) FAST_FUNC;
+extern void *memrchr(const void *s, int c, size_t n)
+#if !ENABLE_PLATFORM_MINGW32
+/* we want the same signature as memchr */
+FAST_FUNC
+#endif
+;
 #endif
 
 #ifndef HAVE_MKDTEMP

@@ -86,7 +86,11 @@ int dprintf(int fd, const char *format, ...)
  * It's basically the inverse of memchr() - search backwards in a
  * memory block for a particular character.
  */
-void* FAST_FUNC memrchr(const void *s, int c, size_t n)
+void*
+#if !ENABLE_PLATFORM_MINGW32
+FAST_FUNC
+#endif
+memrchr(const void *s, int c, size_t n)
 {
 	const char *start = s, *end = s;
 

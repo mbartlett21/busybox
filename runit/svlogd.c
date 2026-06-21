@@ -152,7 +152,9 @@ log message, you can use a pattern like this instead
 //usage:   "\n""nNUM - number of files to retain"
 ///////:   "\n""NNUM - min number files to retain" - confusing
 ///////:   "\n""tSEC - rotate file if it get SEC seconds old" - confusing
+//usage:	IF_NOT_PLATFORM_MINGW32(
 //usage:   "\n""!PROG - process rotated log with PROG"
+//usage:	)
 ///////:   "\n""uIPADDR - send log over UDP" - unsupported
 ///////:   "\n""UIPADDR - send log over UDP and DONT log" - unsupported
 ///////:   "\n""pPFX - prefix each line with PFX" - unsupported
@@ -172,15 +174,19 @@ struct logdir {
 	////char *btmp;
 	/* pattern list to match, in "aa\0bb\0\cc\0\0" form */
 	char *inst;
+#if !ENABLE_PLATFORM_MINGW32
 	char *processor;
+#endif
 	char *name;
 	unsigned size;
 	unsigned sizemax;
 	unsigned nmax;
 	unsigned nmin;
 	unsigned rotate_period;
+#if !ENABLE_PLATFORM_MINGW32
 	int ppid;
 	int fddir;
+#endif
 	int fdcur;
 	FILE* filecur; ////
 	int fdlock;
@@ -198,7 +204,11 @@ struct globals {
 	////int buflen;
 	int linelen;
 
+#if ENABLE_PLATFORM_MINGW32
+	char *strwdir;
+#else
 	int fdwdir;
+#endif
 	char **fndir;
 	int wstat;
 	unsigned nearest_rotate;
@@ -217,8 +227,13 @@ struct globals {
 	int fl_flag_0;
 	unsigned dirn;
 
+#if !ENABLE_PLATFORM_MINGW32
 	sigset_t blocked_sigset;
+#endif
 };
+#if ENABLE_PLATFORM_MINGW32
+#define O_NDELAY 0
+#endif
 #define G (*ptr_to_globals)
 #define dir            (G.dir           )
 #define verbose        (G.verbose       )
@@ -227,6 +242,7 @@ struct globals {
 #define linelen        (G.linelen       )
 #define fndir          (G.fndir         )
 #define fdwdir         (G.fdwdir        )
+#define strwdir        (G.strwdir       )
 #define wstat          (G.wstat         )
 #define memRchr        (G.memRchr       )
 #define nearest_rotate (G.nearest_rotate)
@@ -268,10 +284,12 @@ static void warn2(const char *m0, const char *m1)
 {
 	bb_perror_msg(WARNING"%s: %s", m0, m1);
 }
+#if !ENABLE_PLATFORM_MINGW32
 static void warnx(const char *m0, const char *m1)
 {
 	bb_error_msg(WARNING"%s: %s", m0, m1);
 }
+#endif
 static void pause_nomem(void)
 {
 	bb_simple_error_msg(PAUSE"out of memory");
@@ -288,6 +306,7 @@ static void pause2cannot(const char *m0, const char *m1)
 	sleep(3);
 }
 
+#if !ENABLE_PLATFORM_MINGW32
 static char* wstrdup(const char *str)
 {
 	char *s;
@@ -295,6 +314,7 @@ static char* wstrdup(const char *str)
 		pause_nomem();
 	return s;
 }
+#endif
 
 static unsigned pmatch(const char *p, const char *s, unsigned len)
 {
@@ -350,9 +370,17 @@ static void fmt_time_human_30nul(char *s, char dt_delim)
 	struct tm tm;
 	struct tm *ptm;
 	struct timeval tv;
+#if ENABLE_PLATFORM_MINGW32
+	time_t timesecs;
+#endif
 
 	xgettimeofday(&tv);
+#if ENABLE_PLATFORM_MINGW32
+	timesecs = tv.tv_sec;
+	ptm = gmtime_r(&timesecs, &tm);
+#else
 	ptm = gmtime_r(&tv.tv_sec, &tm);
+#endif
 	/* ^^^ using gmtime_r() instead of gmtime() to not use static data */
 	sprintf(s, "%04u-%02u-%02u%c%02u:%02u:%02u.%06u000",
 		(unsigned)(1900 + ptm->tm_year),
@@ -389,6 +417,7 @@ static void fmt_time_bernstein_25(char *s)
 	bin2hex(s, (char*)pack, 12);
 }
 
+#if !ENABLE_PLATFORM_MINGW32
 static void processorstart(struct logdir *ld)
 {
 	char sv_ch;
@@ -504,6 +533,7 @@ static unsigned processorstop(struct logdir *ld)
 		pause1cannot("change to initial working directory");
 	return 1;
 }
+#endif
 
 static void rmoldest(struct logdir *ld)
 {
@@ -546,6 +576,7 @@ static unsigned rotate(struct logdir *ld)
 	struct stat st;
 	unsigned now;
 
+#if !ENABLE_PLATFORM_MINGW32
 	if (ld->fddir == -1) {
 		ld->rotate_period = 0;
 		return 0;
@@ -553,15 +584,22 @@ static unsigned rotate(struct logdir *ld)
 	if (ld->ppid)
 		while (!processorstop(ld))
 			continue;
+#endif
 
+#if ENABLE_PLATFORM_MINGW32
+	while (chdir(ld->name) == -1)
+#else
 	while (fchdir(ld->fddir) == -1)
+#endif
 		pause2cannot("change directory, want rotate", ld->name);
 
 	/* create new filename */
 	ld->fnsave[25] = '.';
 	ld->fnsave[26] = 's';
+#if !ENABLE_PLATFORM_MINGW32
 	if (ld->processor)
 		ld->fnsave[26] = 'u';
+#endif
 	ld->fnsave[27] = '\0';
 	do {
 		fmt_time_bernstein_25(ld->fnsave);
@@ -601,10 +639,16 @@ static unsigned rotate(struct logdir *ld)
 			pause2cannot("set mode of current", ld->name);
 
 		rmoldest(ld);
+#if !ENABLE_PLATFORM_MINGW32
 		processorstart(ld);
+#endif
 	}
 
+#if ENABLE_PLATFORM_MINGW32
+	while (chdir(strwdir) == -1)
+#else
 	while (fchdir(fdwdir) == -1)
+#endif
 		pause1cannot("change to initial working directory");
 	return 1;
 }
@@ -632,7 +676,11 @@ static int buffer_pwrite(int n, char *s, unsigned len)
 			char oldest[FMT_PTIME];
 			int j = 0;
 
+#if ENABLE_PLATFORM_MINGW32
+			while (chdir(ld->name) == -1)
+#else
 			while (fchdir(ld->fddir) == -1)
+#endif
 				pause2cannot("change directory, want remove old logfile",
 							ld->name);
 			oldest[0] = 'A';
@@ -660,7 +708,11 @@ static int buffer_pwrite(int n, char *s, unsigned len)
 						warn2("can't unlink oldest logfile", ld->name);
 						errno = ENOSPC;
 					}
+#if ENABLE_PLATFORM_MINGW32
+					while (chdir(strwdir) == -1)
+#else
 					while (fchdir(fdwdir) == -1)
+#endif
 						pause1cannot("change to initial working directory");
 				}
 			}
@@ -679,12 +731,18 @@ static int buffer_pwrite(int n, char *s, unsigned len)
 
 static void logdir_close(struct logdir *ld)
 {
+#if ENABLE_PLATFORM_MINGW32
+	if (ld->fdcur == -1)
+#else
 	if (ld->fddir == -1)
+#endif
 		return;
 	if (verbose)
 		bb_error_msg(INFO"close: %s", ld->name);
+#if !ENABLE_PLATFORM_MINGW32
 	close(ld->fddir);
 	ld->fddir = -1;
+#endif
 	if (ld->fdcur == -1)
 		return; /* impossible */
 	while (fflush(ld->filecur) || fsync(ld->fdcur) == -1)
@@ -698,8 +756,10 @@ static void logdir_close(struct logdir *ld)
 		return; /* impossible */
 	close(ld->fdlock);
 	ld->fdlock = -1;
+#if !ENABLE_PLATFORM_MINGW32
 	free(ld->processor);
 	ld->processor = NULL;
+#endif
 }
 
 static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
@@ -712,13 +772,18 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 
 	now = monotonic_sec();
 
+#if !ENABLE_PLATFORM_MINGW32
 	ld->fddir = open(fn, O_RDONLY|O_NDELAY);
 	if (ld->fddir == -1) {
 		warn2("can't open log directory", (char*)fn);
 		return 0;
 	}
 	close_on_exec_on(ld->fddir);
-	if (fchdir(ld->fddir) == -1) {
+	if (fchdir(ld->fddir) == -1)
+#else
+	if (chdir((char*)fn) == -1)
+#endif
+	{
 		logdir_close(ld);
 		warn2("can't change directory", (char*)fn);
 		return 0;
@@ -729,7 +794,11 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 	) {
 		logdir_close(ld);
 		warn2("can't lock directory", (char*)fn);
+#if ENABLE_PLATFORM_MINGW32
+		while (chdir(strwdir) == -1)
+#else
 		while (fchdir(fdwdir) == -1)
+#endif
 			pause1cannot("change to initial working directory");
 		return 0;
 	}
@@ -740,10 +809,14 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 	ld->nmax = ld->nmin = 10;
 	ld->rotate_period = 0;
 	ld->name = (char*)fn;
+#if !ENABLE_PLATFORM_MINGW32
 	ld->ppid = 0;
+#endif
 	ld->match = '+';
 	free(ld->inst); ld->inst = NULL;
+#if !ENABLE_PLATFORM_MINGW32
 	free(ld->processor); ld->processor = NULL;
+#endif
 
 	/* read config */
 	i = open_read_close("config", buf, sizeof(buf) - 1);
@@ -805,8 +878,12 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 			}
 			case '!':
 				if (s[1]) {
+#if ENABLE_PLATFORM_MINGW32
+					bb_error_msg_and_die("processors not supported on Windows");
+#else
 					free(ld->processor);
 					ld->processor = wstrdup(&s[1]);
+#endif
 				}
 				break;
 			}
@@ -825,8 +902,33 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 	/* open current */
 	i = stat("current", &st);
 	if (i != -1) {
-		if (st.st_size && !(st.st_mode & S_IXUSR)) {
+#if ENABLE_PLATFORM_MINGW32
+		/* Windows doesn't have an execute permisison on files that can be used.
+		   Instead, check some details about the file */
+		char lastch = 0;
+		int fd = open("current", O_RDONLY);
+		if (fd >= 0) {
+			if(lseek(fd, -1, SEEK_END) >= 0)
+				read(fd, &lastch, 1);
+			close(fd);
+		}
+
+		/* st.st_size can be not just bigger, but WIDER!
+		 * This code is safe: if st.st_size > 4GB, we select
+		 * ld->sizemax (because it's "unsigned") */
+		/* this is done before so that the rename: message can use it */
+		ld->size = (st.st_size > ld->sizemax) ? ld->sizemax : st.st_size;
+
+		/* If the last character was a newline, we assume that the previous
+		   run worked properly, since the log file will still be well-formatted.
+		   Other than that we start a new log file. */
+		if (st.st_size && lastch != '\n')
+#else
+		if (st.st_size && !(st.st_mode & S_IXUSR))
+#endif
+		{
 			ld->fnsave[25] = '.';
+			/* todo: should this be 's' when there is no processor? */
 			ld->fnsave[26] = 'u';
 			ld->fnsave[27] = '\0';
 			do {
@@ -834,21 +936,36 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 				errno = 0;
 				stat(ld->fnsave, &st);
 			} while (errno != ENOENT);
+#if ENABLE_PLATFORM_MINGW32
+			if (verbose) {
+				/* would be nice upstream */
+				bb_error_msg(INFO"rename: %s/current %s %u", ld->name,
+						ld->fnsave, ld->size);
+			}
+			ld->size = 0;
+#endif
 			while (rename("current", ld->fnsave) == -1)
 				pause2cannot("rename current", ld->name);
 			rmoldest(ld);
 			i = -1;
-		} else {
+		}
+#if !ENABLE_PLATFORM_MINGW32
+		else {
 			/* st.st_size can be not just bigger, but WIDER!
 			 * This code is safe: if st.st_size > 4GB, we select
 			 * ld->sizemax (because it's "unsigned") */
 			ld->size = (st.st_size > ld->sizemax) ? ld->sizemax : st.st_size;
 		}
+#endif
 	} else {
 		if (errno != ENOENT) {
 			logdir_close(ld);
 			warn2("can't stat current", ld->name);
+#if ENABLE_PLATFORM_MINGW32
+			while (chdir(strwdir) == -1)
+#else
 			while (fchdir(fdwdir) == -1)
+#endif
 				pause1cannot("change to initial working directory");
 			return 0;
 		}
@@ -868,7 +985,11 @@ static NOINLINE unsigned logdir_open(struct logdir *ld, const char *fn)
 		else bb_error_msg(INFO"new: %s/current", ld->name);
 	}
 
+#if ENABLE_PLATFORM_MINGW32
+	while (chdir(strwdir) == -1)
+#else
 	while (fchdir(fdwdir) == -1)
+#endif
 		pause1cannot("change to initial working directory");
 	return 1;
 }
@@ -935,14 +1056,18 @@ static int buffer_pread(/*int fd, */char *s, unsigned len)
 			}
 		}
 
+#if !ENABLE_PLATFORM_MINGW32
 		sigprocmask(SIG_UNBLOCK, &blocked_sigset, NULL);
+#endif
 		i = nearest_rotate - now;
 		if (i > 1000000)
 			i = 1000000;
 		if (i <= 0)
 			i = 1;
 		poll(&input, 1, i * 1000);
+#if !ENABLE_PLATFORM_MINGW32
 		sigprocmask(SIG_BLOCK, &blocked_sigset, NULL);
+#endif
 
 		i = ndelay_read(STDIN_FILENO, s, len);
 		if (i >= 0)
@@ -991,6 +1116,7 @@ static void sig_term_handler(int sig_no UNUSED_PARAM)
 	exitasap = 1;
 }
 
+#if !ENABLE_PLATFORM_MINGW32
 static void sig_child_handler(int sig_no UNUSED_PARAM)
 {
 	pid_t pid;
@@ -1022,6 +1148,7 @@ static void sig_hangup_handler(int sig_no UNUSED_PARAM)
 		bb_error_msg(INFO"sig%s received", "hangup");
 	reopenasap = 1;
 }
+#endif
 
 static void logmatch(struct logdir *ld, char* lineptr, int lineptr_len)
 {
@@ -1089,11 +1216,17 @@ int svlogd_main(int argc, char **argv)
 	if (dirn <= 0)
 		bb_show_usage();
 	////if (buflen <= linemax) bb_show_usage();
+#if ENABLE_PLATFORM_MINGW32
+	strwdir = xmalloc_realpath(".");
+#else
 	fdwdir = xopen(".", O_RDONLY|O_NDELAY);
 	close_on_exec_on(fdwdir);
+#endif
 	dir = xzalloc(dirn * sizeof(dir[0]));
 	for (i = 0; i < dirn; ++i) {
+#if !ENABLE_PLATFORM_MINGW32
 		dir[i].fddir = -1;
+#endif
 		dir[i].fdcur = -1;
 		////dir[i].btmp = xmalloc(buflen);
 		/*dir[i].ppid = 0;*/
@@ -1105,6 +1238,7 @@ int svlogd_main(int argc, char **argv)
 	 * with the same stdin */
 	fl_flag_0 = fcntl(0, F_GETFL);
 
+#if !ENABLE_PLATFORM_MINGW32
 	sigemptyset(&blocked_sigset);
 	sigaddset(&blocked_sigset, SIGTERM);
 	sigaddset(&blocked_sigset, SIGCHLD);
@@ -1115,6 +1249,9 @@ int svlogd_main(int argc, char **argv)
 	bb_signals_norestart(1 << SIGCHLD, sig_child_handler);
 	bb_signals_norestart(1 << SIGALRM, sig_alarm_handler);
 	bb_signals_norestart(1 << SIGHUP, sig_hangup_handler);
+#else
+	signal(SIGINT, sig_term_handler);
+#endif
 
 	/* Without timestamps, we don't have to print each line
 	 * separately, so we can look for _last_ newline, not first,
@@ -1192,7 +1329,11 @@ int svlogd_main(int argc, char **argv)
 		}
 		for (i = 0; i < dirn; ++i) {
 			struct logdir *ld = &dir[i];
+#if ENABLE_PLATFORM_MINGW32
+			if (ld->fdcur == -1)
+#else
 			if (ld->fddir == -1)
+#endif
 				continue;
 			if (ld->inst)
 				logmatch(ld, lineptr, linelen);
@@ -1225,7 +1366,11 @@ int svlogd_main(int argc, char **argv)
 			}
 			/* linelen == no of chars incl. '\n' (or == stdin_cnt) */
 			for (i = 0; i < dirn; ++i) {
+#if ENABLE_PLATFORM_MINGW32
+				if (dir[i].fdcur == -1)
+#else
 				if (dir[i].fddir == -1)
+#endif
 					continue;
 				if (dir[i].matcherr == 'e') {
 					////full_write(STDERR_FILENO, lineptr, linelen);
@@ -1252,10 +1397,15 @@ int svlogd_main(int argc, char **argv)
 	}
 
 	for (i = 0; i < dirn; ++i) {
+#if !ENABLE_PLATFORM_MINGW32
 		if (dir[i].ppid)
 			while (!processorstop(&dir[i]))
 				continue;
+#endif
 		logdir_close(&dir[i]);
 	}
+#if ENABLE_PLATFORM_MINGW32 && ENABLE_FEATURE_CLEAN_UP
+	free(strwdir)
+#endif
 	return 0;
 }
