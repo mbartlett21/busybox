@@ -112,6 +112,14 @@
 //config:	help
 //config:	Enable the editor to set some (ai, ic, showmatch) options.
 //config:
+//config:config FEATURE_VI_MODELINES
+//config:	bool "Enable modeline reading"
+//config:	default y
+//config:	depends on VI && FEATURE_VI_SETOPTS
+//config:	help
+//config:	Check for modelines when a file is opened and read.
+//config:
+//config:
 //config:config FEATURE_VI_SET
 //config:	bool "Support :set"
 //config:	default y
@@ -578,6 +586,9 @@ static void show_help(void)
 #endif
 #if ENABLE_FEATURE_VI_SETOPTS
 	"\n\tSettable options with \":set\""
+#if ENABLE_FEATURE_VI_MODELINES
+	"\n\tModeline support"
+#endif
 #endif
 #if ENABLE_FEATURE_VI_USE_SIGNALS
 	"\n\tSignal catching- ^C"
@@ -1980,6 +1991,82 @@ static char *yank_delete(char *start, char *stop, int buftype, int yf, int undo)
 	return p;
 }
 
+#if ENABLE_FEATURE_VI_MODELINES
+static void colon(char *buf);
+
+static void check_modeline(void)
+{
+	char *linestart, *lineend, *set_start, *set_end;
+	int h, i, j;
+
+	/* 0 => initial five, 1 => last five */
+	/* we can do lines twice if the file is shorter than ten lines, but that
+	   doesn't matter, since :set is idempotent */
+	for (h = 0; h < 2; h++) {
+		if (!h) {
+			linestart = text;
+			lineend = next_line(linestart);
+		} else {
+			lineend = end;
+			linestart = prev_line(lineend);
+		}
+		for (i = 0; i < 5; i++) {
+			int has_seen_vi = 0;
+			int has_non_ws = 0;
+			set_start = NULL;
+			set_end = NULL;
+
+			for (j = 0; j < (lineend - linestart); j++) {
+				if (set_start) {
+					if (linestart[j] == ':') {
+						/* we have now finished matching the command */
+						set_end = linestart + j;
+						break;
+					} else if (!isspace(linestart[j])) {
+						/* we test the first time we come across a non-whitespace */
+						if (!has_non_ws && strncmp(linestart + j, "all", 3) == 0) {
+							break; /* don't run ':set all' */
+						}
+						has_non_ws = 1;
+					}
+				} else if (has_seen_vi) {
+					/* we limit commands to only set */
+					if (strncmp(linestart + j, "set", 3) == 0) {
+						set_start = linestart + j;
+						j = j + 2; /* skip the e and t (required for has_non_ws) */
+					}
+				} else {
+					has_seen_vi =
+						(strncmp(linestart + j, "vi:", 3) == 0) ||
+						(strncmp(linestart + j, "vim:", 4) == 0);
+				}
+			}
+
+			/* the extra checks are so we don't do ':set' or ':set all' */
+			/* those print out the current set and require extra interaction */
+			if (set_end && has_non_ws) {
+				char psetend = *set_end;
+				*set_end = '\0';
+
+				colon(set_start);
+				have_status_msg = 0; /* ignore any unknown options */
+
+				/* restore to before */
+				*set_end = psetend;
+			}
+
+			if (!h) {
+				linestart = lineend;
+				lineend = next_line(linestart);
+			} else {
+				lineend = linestart;
+				linestart = prev_line(lineend);
+			}
+		}
+	}
+}
+#endif
+
 // might reallocate text[]!
 static int file_insert(const char *fn, char *p, int initial)
 {
@@ -2026,6 +2113,11 @@ static int file_insert(const char *fn, char *p, int initial)
 # endif
  fi:
 	close(fd);
+
+#if ENABLE_FEATURE_VI_MODELINES
+	if (initial)
+		check_modeline();
+#endif
 
 #if ENABLE_FEATURE_VI_READONLY
 	if (initial
