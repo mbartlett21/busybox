@@ -2696,7 +2696,15 @@ static char *expand_args(char *args)
 		} else if (*s == '#') {
 			replace = alt_filename;
 		} else {
-			if (*s == '\\' && s[1] != '\0') {
+			/* According to POSIX, backslash-escapes are ignored unless they
+			 * escape a special character and gives an example of \\% turning into \% */
+			/* Examples from vim: (current_filename = test)
+			 * :!echo '%'     => test
+			 * :!echo '\%'    => %
+			 * :!echo '\\%'   => \%
+			 * :!echo '\\\%'  => \\%
+			 */
+			if (*s == '\\' && (s[1] == '%' || s[1] == '#')) {
 				char *t;
 				for (t = s; *t; t++)
 					*t = t[1];
