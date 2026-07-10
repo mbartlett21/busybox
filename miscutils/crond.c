@@ -281,7 +281,8 @@ static void ParseField(char *user, char *ary, int modvalue, int off,
 		 * in the character array appropriately.
 		 */
 		if (n2 < 0) {
-			n2 = n1;
+			/* allow ranges like 5/10 to expand to 5,15,25,35,45,55 */
+			n2 = (*ptr == '/') ? modvalue - 1 : n1;
 		}
 		if (*ptr == '/') {
 			char *endp;
