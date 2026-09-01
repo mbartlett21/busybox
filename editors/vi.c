@@ -2695,16 +2695,31 @@ static char *expand_args(char *args)
 //then replaces "\c" with "c". Result:
 // "\%" is "%" (ok),
 // "\\" is "\" (ok),
-// "\\%" is "\%" (!!!), not "\CURFILE" as you would think.
-//We don't do that. Should we?
+// "\\%" is "%" (!!!), not "\CURFILE" as you would think.
 		if (*s == '%') {
 			replace = current_filename;
 		} else if (*s == '#') {
 			replace = alt_filename;
 		} else {
+			/* it is complicated. filenames go through a double-expansion
+			   and so we have (with current_filename = test):
+				:e \      => \
+				:e \\     => \
+				:e \\\    => \\
+				:e \\\\   => \\
+				:e %      => test
+				:e \%     => %
+				:e \\%    => %
+				:e \\\%   => \%
+				:e \\\\%  => \%
+				:e \a\b\c => abc
+			*/
 			if (*s == '\\' && s[1] != '\0') {
-				overlapping_strcpy(s, s + 1);
-				s++;
+				overlapping_strcpy(s,
+					/* we have \\% => \% => % */
+					(s[1] == '\\' && (s[2] == '%' || s[2] == '#')) ?
+						s + 2 :
+						s + 1);
 			}
 			continue;
 		}
