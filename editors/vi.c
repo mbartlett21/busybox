@@ -407,6 +407,9 @@ struct globals {
 	struct termios term_orig; // remember what the cooked mode was
 	int cindex;               // saved character index for up/down motion
 	smallint keep_index;      // retain saved character index
+#if ENABLE_FEATURE_ALLOW_EXEC && ENABLE_FEATURE_VI_COLON_EXPAND
+	smallint expand_args_exec;
+#endif
 #if ENABLE_FEATURE_VI_COLON
 	llist_t *initial_cmds;
 #endif
@@ -525,6 +528,7 @@ struct globals {
 #define term_orig      (G.term_orig     )
 #define cindex         (G.cindex        )
 #define keep_index     (G.keep_index    )
+#define expand_args_exec    (G.expand_args_exec   )
 #define initial_cmds   (G.initial_cmds  )
 #define readbuffer     (G.readbuffer    )
 #define scr_out_buf    (G.scr_out_buf   )
@@ -2700,6 +2704,22 @@ static char *expand_args(char *args)
 			replace = current_filename;
 		} else if (*s == '#') {
 			replace = alt_filename;
+#if ENABLE_FEATURE_ALLOW_EXEC
+		} else if (expand_args_exec) {
+			expand_args_exec = 0;
+			/* According to POSIX, backslash-escapes are ignored unless they
+			   escape a special character and gives an example of \\% turning into \%.
+			   Examples from vim: (current_filename = test)
+				:!printf \%s '%'     => test
+				:!printf \%s '\%'    => %
+				:!printf \%s '\\%'   => \%
+				:!printf \%s '\\\%'  => \\%
+			*/
+			if (*s == '\\' && (s[1] == '%' || s[1] == '#')) {
+				overlapping_strcpy(s, s + 1);
+			}
+			continue;
+#endif
 		} else {
 			/* it is complicated. filenames go through a double-expansion
 			   and so we have (with current_filename = test):
@@ -2961,6 +2981,9 @@ static void colon(char *buf)
 			status_line_bold("Range not allowed");
 			goto ret;
 		}
+#if ENABLE_FEATURE_VI_COLON_EXPAND
+		expand_args_exec = 1;
+#endif
 		exp = expand_args(buf + 1);
 		if (exp == NULL)
 			goto ret;
