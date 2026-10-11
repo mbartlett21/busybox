@@ -269,6 +269,7 @@ static void func_sid(char *buf, int size, const procps_status_t *ps)
 {
 	sprintf(buf, "%*u", size, ps->sid);
 }
+#endif
 
 static void put_lu(char *buf, int size, unsigned long u)
 {
@@ -289,6 +290,7 @@ static void func_rss(char *buf, int size, const procps_status_t *ps)
 	put_lu(buf, size, ps->rss);
 }
 
+#if !ENABLE_PLATFORM_MINGW32
 static void func_tty(char *buf, int size, const procps_status_t *ps)
 {
 	buf[0] = '?';
@@ -408,12 +410,14 @@ static const ps_out_t out_spec[] ALIGN_PTR = {
 #endif
 #if !ENABLE_PLATFORM_MINGW32
 	{ 6                  , "tty"   ,"TT"     ,func_tty   ,PSSCAN_TTY     },
+#endif
 	{ 4                  , "vsz"   ,"VSZ"    ,func_vsz   ,PSSCAN_VSZ     },
+#if !ENABLE_PLATFORM_MINGW32
 /* Not mandated, but useful: */
 	{ 5                  , "sid"   ,"SID"    ,func_sid   ,PSSCAN_SID     },
 	{ 4                  , "stat"  ,"STAT"   ,func_state ,PSSCAN_STATE   },
-	{ 4                  , "rss"   ,"RSS"    ,func_rss   ,PSSCAN_RSS     },
 #endif
+	{ 4                  , "rss"   ,"RSS"    ,func_rss   ,PSSCAN_RSS     },
 #if ENABLE_SELINUX
 	{ 35                 , "label" ,"LABEL"  ,func_label ,PSSCAN_CONTEXT },
 #endif

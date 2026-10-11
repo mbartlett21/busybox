@@ -737,6 +737,42 @@ void get_process_times(DWORD pid, unsigned long* start_time,
 	}
 }
 
+static void get_process_mem(DWORD pid, unsigned long *vsz, unsigned long *rss)
+{
+	DECLARE_PROC_ADDR(BOOL, GetProcessMemoryInfo, HANDLE, PPROCESS_MEMORY_COUNTERS, DWORD);
+	HANDLE proc;
+	DWORD flag = PROCESS_QUERY_LIMITED_INFORMATION;
+	PROCESS_MEMORY_COUNTERS memcnt;
+
+	if (!INIT_PROC_ADDR(psapi.dll, GetProcessMemoryInfo))
+		return;
+
+retry:
+	if ((proc=OpenProcess(flag, FALSE, pid))) {
+		memset(&memcnt, 0, sizeof(memcnt));
+		memcnt.cb = sizeof(memcnt);
+		if (!GetProcessMemoryInfo(proc, &memcnt, sizeof(memcnt))) {
+			goto finish;
+		}
+
+		/* according to the documentation, PagefileUsage should represent vram required
+		   for the process, but that doesn't actually seem true. Almost all processes I
+		   am running on my machine have a PagefileUsage less than WorkingSetSize so it
+		   seems that PagefileUsage isn't a total. Thus I have it add them all together
+		   below to get the vsz in KiB. */
+		*vsz = (memcnt.WorkingSetSize + memcnt.PagefileUsage +
+				memcnt.QuotaPagedPoolUsage + memcnt.QuotaNonPagedPoolUsage) >> 10;
+		*rss = memcnt.WorkingSetSize >> 10;
+
+finish:
+		CloseHandle(proc);
+	} else if (flag == PROCESS_QUERY_LIMITED_INFORMATION) {
+		/* according to docs, XP requires PROCESS_VM_READ */
+		flag = PROCESS_QUERY_INFORMATION|PROCESS_VM_READ;
+		goto retry;
+	}
+}
+
 /* POSIX version in libbb/procps.c */
 procps_status_t* FAST_FUNC procps_scan(procps_status_t* sp, int flags
 #if !ENABLE_FEATURE_PS_TIME && !ENABLE_FEATURE_PS_LONG
@@ -851,6 +887,9 @@ UNUSED_PARAM
 		}
 		safe_strncpy(sp->comm, comm, COMM_LEN);
 	}
+
+	if (flags & (PSSCAN_RSS | PSSCAN_VSZ))
+		get_process_mem(sp->pid, &sp->vsz, &sp->rss);
 
 	return sp;
 }
