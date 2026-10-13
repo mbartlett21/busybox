@@ -57,7 +57,7 @@ int64_t FAST_FUNC windows_read_key(int fd, char *buf UNUSED_PARAM, int timeout)
 
 	while (1) {
 		errno = 0;
-		if (timeout > 0) {
+		if (timeout >= 0) {
 			if (WaitForSingleObject(cin, timeout) != WAIT_OBJECT_0)
 				goto done;
 		}
@@ -134,6 +134,8 @@ int64_t FAST_FUNC windows_read_key(int fd, char *buf UNUSED_PARAM, int timeout)
 		break;
 	}
  done:
+	if (ret == -1 && !errno)
+		errno = EAGAIN;
 	SetConsoleMode(cin, mode);
 	return ret;
 }
