@@ -143,8 +143,8 @@ typedef struct top_status_t {
 
 typedef struct jiffy_counts_t {
 	/* Linux 2.4.x has only first four */
-	unsigned long long usr, nic, sys, idle;
-	unsigned long long iowait, irq, softirq, steal;
+	unsigned long long usr, IF_NOT_PLATFORM_MINGW32(nic,) sys, idle;
+	IF_NOT_PLATFORM_MINGW32(unsigned long long iowait, irq, softirq, steal;)
 	unsigned long long total;
 	unsigned long long busy;
 } jiffy_counts_t;
@@ -283,6 +283,32 @@ static int mult_lvl_cmp(void* a, void* b)
 	return inverted ? -cmp_val : cmp_val;
 }
 
+#if ENABLE_PLATFORM_MINGW32
+static inline unsigned long long filetime_to_ull(const FILETIME *ft)
+{
+	ULARGE_INTEGER u;
+	u.LowPart  = ft->dwLowDateTime;
+	u.HighPart = ft->dwHighDateTime;
+	return (u.QuadPart) / HNSEC_PER_TICK;
+}
+
+static NOINLINE int read_cpu_jiffy_total(jiffy_counts_t *p_jif)
+{
+	FILETIME idle_ft, kernel_ft, user_ft;
+
+	if (!GetSystemTimes(&idle_ft, &kernel_ft, &user_ft))
+		return 0;
+
+	p_jif->usr     = filetime_to_ull(&user_ft);
+	p_jif->idle    = filetime_to_ull(&idle_ft);
+	p_jif->sys     = filetime_to_ull(&kernel_ft) - p_jif->idle;
+
+	p_jif->total   = p_jif->usr + p_jif->sys + p_jif->idle;
+	p_jif->busy    = p_jif->usr + p_jif->sys;
+
+	return 4; /* we got enough fields */
+}
+#else
 static NOINLINE int read_cpu_jiffy(FILE *fp, jiffy_counts_t *p_jif)
 {
 #if !ENABLE_FEATURE_TOP_SMP_CPU
@@ -307,19 +333,29 @@ static NOINLINE int read_cpu_jiffy(FILE *fp, jiffy_counts_t *p_jif)
 
 	return ret;
 }
+#endif
 
 static void get_jiffy_counts(void)
 {
+#if !ENABLE_PLATFORM_MINGW32
 	FILE* fp = xfopen_for_read("stat");
+#endif
 
 	/* We need to parse cumulative counts even if SMP CPU display is on,
 	 * they are used to calculate per process CPU% */
 	prev_jif = cur_jif;
+#if ENABLE_PLATFORM_MINGW32
+	if (read_cpu_jiffy_total(&cur_jif) < 4)
+		bb_error_msg_and_die("can't read CPU data");
+#else
 	if (read_cpu_jiffy(fp, &cur_jif) < 4)
 		bb_error_msg_and_die("can't read '%s'", "/proc/stat");
+#endif
 
 #if !ENABLE_FEATURE_TOP_SMP_CPU
+#if !ENABLE_PLATFORM_MINGW32
 	fclose(fp);
+#endif
 	return;
 #else
 	if (!smp_cpu_info) {
@@ -358,7 +394,9 @@ static void get_jiffy_counts(void)
 			read_cpu_jiffy(fp, &cpu_jif[i]);
 	}
 #endif
+#if !ENABLE_PLATFORM_MINGW32
 	fclose(fp);
+#endif
 }
 
 static void do_stats(void)
@@ -523,14 +561,22 @@ static void display_cpus(void)
 		{ /* Need a block: CALC_STAT are declarations */
 			CALC_STAT(usr);
 			CALC_STAT(sys);
+#if !ENABLE_PLATFORM_MINGW32
 			CALC_STAT(nic);
+#endif
 			CALC_STAT(idle);
+#if !ENABLE_PLATFORM_MINGW32
 			CALC_STAT(iowait);
 			CALC_STAT(irq);
 			CALC_STAT(softirq);
 			/*CALC_STAT(steal);*/
+#endif
 
 			sprintf(G.line_buf,
+#if ENABLE_PLATFORM_MINGW32
+				"CPU:"FMT"usr"FMT"sys"FMT"idle",
+				SHOW_STAT(usr), SHOW_STAT(sys), SHOW_STAT(idle)
+#else
 				/* Barely fits in 79 chars when in "decimals" mode. */
 # if ENABLE_FEATURE_TOP_SMP_CPU
 				"CPU%s:"FMT"usr"FMT"sys"FMT"nic"FMT"idle"FMT"io"FMT"irq"FMT"sirq",
@@ -542,6 +588,7 @@ static void display_cpus(void)
 				SHOW_STAT(iowait), SHOW_STAT(irq), SHOW_STAT(softirq)
 				/*, SHOW_STAT(steal) - what is this 'steal' thing? */
 				/* I doubt anyone wants to know it */
+#endif
 			);
 			print_line_buf();
 		}
