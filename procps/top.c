@@ -132,7 +132,9 @@ typedef struct top_status_t {
 #endif
 	unsigned pid, ppid;
 	unsigned uid;
+#if !ENABLE_PLATFORM_MINGW32
 	char state[4];
+#endif
 	char comm[COMM_LEN];
 #if ENABLE_FEATURE_TOP_SMP_PROCESS
 	int last_seen_on_cpu;
@@ -571,6 +573,7 @@ enum {
 
 static void parse_meminfo(unsigned long meminfo[MI_MAX])
 {
+#if !ENABLE_PLATFORM_MINGW32
 	static const char fields[] ALIGN1 =
 		"MemTotal\0"
 		"MemFree\0"
@@ -601,6 +604,24 @@ static void parse_meminfo(unsigned long meminfo[MI_MAX])
 			meminfo[i] = strtoul(c+1, NULL, 10);
 	}
 	fclose(f);
+#else
+	struct sysinfo info;
+	memset(meminfo, 0, sizeof(meminfo[0]) * MI_MAX);
+	sysinfo(&info);
+	meminfo[MI_MEMTOTAL] = info.totalram;
+	meminfo[MI_MEMFREE] = info.freeram;
+	meminfo[MI_MEMSHARED] = info.sharedram;
+	meminfo[MI_SHMEM] = 0;
+	meminfo[MI_BUFFERS] = info.bufferram;
+	meminfo[MI_CACHED] = 0;
+	meminfo[MI_SWAPTOTAL] = info.totalswap;
+	meminfo[MI_SWAPFREE] = info.freeswap;
+	meminfo[MI_DIRTY] = 0;
+	meminfo[MI_WRITEBACK] = 0;
+	meminfo[MI_ANONPAGES] = 0;
+	meminfo[MI_MAPPED] = 0;
+	meminfo[MI_SLAB] = 0;
+#endif
 }
 
 static void cmdline_to_line_buf_and_print(unsigned offset, unsigned pid, const char *comm)
@@ -681,7 +702,12 @@ static NOINLINE void display_process_list(void)
 # define FMT "%4u%%"
 #endif
 
-	strcpy(G.line_buf, "  PID  PPID USER     STAT   RSS %RSS"
+	strcpy(G.line_buf,
+#if !ENABLE_PLATFORM_MINGW32
+	"  PID  PPID USER     STAT   RSS %RSS"
+#else
+	"  PID  PPID USER         RSS %RSS"
+#endif
 		IF_FEATURE_TOP_SMP_PROCESS(" CPU")
 		IF_FEATURE_TOP_CPU_USAGE_PERCENTAGE(" %CPU")
 		" COMMAND");
@@ -794,7 +820,12 @@ static NOINLINE void display_process_list(void)
 				IF_FEATURE_TOP_CPU_USAGE_PERCENTAGE(FMT)
 				" ",
 				ppu,
-				s->state, memsize_str_buf,
+#if !ENABLE_PLATFORM_MINGW32
+				s->state,
+#else
+				"",
+#endif
+				memsize_str_buf,
 				SHOW_STAT(pmem)
 				IF_FEATURE_TOP_SMP_PROCESS(, s->last_seen_on_cpu)
 				IF_FEATURE_TOP_CPU_USAGE_PERCENTAGE(, SHOW_STAT(pcpu))
@@ -825,7 +856,7 @@ static void reset_term(void)
 		tcsetattr_stdin_TCSANOW(&initial_settings);
 }
 
-static void sig_catcher(int sig)
+static void sig_catcher(int sig IF_PLATFORM_MINGW32(UNUSED_PARAM))
 {
 	reset_term();
 	kill_myself_with_sig(sig);
@@ -991,7 +1022,7 @@ static unsigned handle_input(unsigned scan_mask, duration_t interval)
 	}
 
 	while (1) {
-		int32_t c, cc;
+		int32_t c IF_NOT_PLATFORM_MINGW32(, cc);
 
 		c = safe_read_key(STDIN_FILENO, G.kbd_input, interval * 1000);
 		if (c == -1) {
@@ -1043,7 +1074,9 @@ static unsigned handle_input(unsigned scan_mask, duration_t interval)
 			return ONLY_REDRAW;
 		}
 
+#if !ENABLE_PLATFORM_MINGW32
 		cc = c;
+#endif
 		c |= 0x20; /* lowercase */
 		if (c == 'q')
 			return EXIT_MASK;
@@ -1245,7 +1278,9 @@ int top_main(int argc UNUSED_PARAM, char **argv)
 	}
 #endif
 
+#if !ENABLE_PLATFORM_MINGW32
 	xchdir("/proc");
+#endif
 
 #if ENABLE_FEATURE_TOP_CPU_USAGE_PERCENTAGE
 	sort_function[0] = pcpu_sort;
@@ -1265,7 +1300,11 @@ int top_main(int argc UNUSED_PARAM, char **argv)
 		die_func = reset_term;
 	}
 
+#if ENABLE_PLATFORM_MINGW32
+	signal(SIGTERM, sig_catcher);
+#else
 	bb_signals(BB_FATAL_SIGS, sig_catcher);
+#endif
 
 	/* Eat initial input, if any */
 	scan_mask = handle_input(scan_mask, 0);
@@ -1305,7 +1344,9 @@ int top_main(int argc UNUSED_PARAM, char **argv)
 				top[n].ticks = p->stime + p->utime;
 #endif
 				top[n].uid = p->uid;
+#if !ENABLE_PLATFORM_MINGW32
 				strcpy(top[n].state, p->state);
+#endif
 				strcpy(top[n].comm, p->comm);
 #if ENABLE_FEATURE_TOP_SMP_PROCESS
 				top[n].last_seen_on_cpu = p->last_seen_on_cpu;
