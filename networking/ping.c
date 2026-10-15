@@ -136,6 +136,8 @@
 
 #if ENABLE_PLATFORM_MINGW32
 #include "mingw_ip.h"
+
+#include "inet_common.h"
 #endif
 
 #ifdef __BIONIC__
@@ -644,6 +646,8 @@ static void sendping6(int junk UNUSED_PARAM)
 }
 #endif
 
+#if !ENABLE_PLATFORM_MINGW32
+
 static const char *icmp_type_name(int id)
 {
 	switch (id) {
@@ -690,6 +694,8 @@ static const char *icmp6_type_name(int id)
 	default:                     return "unknown ICMP type";
 	}
 }
+#endif
+
 #endif
 
 static void unpack_tail(int sz, uint32_t *tp,
@@ -749,7 +755,11 @@ static int unpack4(char *buf, int sz, struct sockaddr_in *from)
 	sz -= hlen;
 	icmppkt = (struct icmp *) (buf + hlen);
 	if (icmppkt->icmp_id != myid)
+#if ENABLE_PLATFORM_MINGW32
+		return bb_icmp_hexdump_if_verbose(icmppkt, sz, (struct sockaddr *)from, NULL, (option_mask32 & OPT_VERBOSE));
+#else
 		return 0;				/* not our ping */
+#endif
 
 	if (icmppkt->icmp_type == ICMP_ECHOREPLY) {
 		uint16_t recv_seq = ntohs(icmppkt->icmp_seq);
@@ -781,7 +791,11 @@ static int unpack6(char *packet, int sz, struct sockaddr_in6 *from, int hoplimit
 
 	icmppkt = (struct icmp6_hdr *) packet;
 	if (icmppkt->icmp6_id != myid)
+#if ENABLE_PLATFORM_MINGW32
+		return bb_icmp_hexdump_if_verbose((struct icmp *)icmppkt, sz, (struct sockaddr *)from, NULL, (option_mask32 & OPT_VERBOSE));
+#else
 		return 0;				/* not our ping */
+#endif
 
 	if (icmppkt->icmp6_type == ICMP6_ECHO_REPLY) {
 		uint16_t recv_seq = ntohs(icmppkt->icmp6_seq);

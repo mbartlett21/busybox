@@ -7,7 +7,29 @@
  *
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
+#if 0
+#include <net/if.h>
+#if defined(__FreeBSD__)
+# include <netinet/in.h> /* struct ip and friends */
+# include <netinet/ip.h>
+#endif
+#include <netinet/ip_icmp.h>
+#if ENABLE_FEATURE_IPV6
+# include <netinet/ip6.h>
+# include <netinet/icmp6.h>
+# ifndef SOL_IPV6
+#  define SOL_IPV6 IPPROTO_IPV6
+# endif
+# if defined(IPV6_PKTINFO) && !defined(IPV6_RECVPKTINFO)
+#  define IPV6_RECVPKTINFO IPV6_PKTINFO
+# endif
+#endif
+#endif
+
 #include "libbb.h"
+#if ENABLE_PLATFORM_MINGW32
+#include "mingw_ip.h"
+#endif
 #include "inet_common.h"
 
 #if 0
@@ -194,3 +216,91 @@ char* FAST_FUNC INET6_rresolve(struct sockaddr_in6 *sin6, int numeric)
 }
 
 #endif  /* CONFIG_FEATURE_IPV6 */
+
+#if ENABLE_PLATFORM_MINGW32
+
+/* shared definitions for ping and traceroute: */
+
+#if ENABLE_PING || ENABLE_FEATURE_TRACEROUTE_VERBOSE
+const char *icmp_type_name(unsigned char id)
+{
+	switch (id) {
+	case ICMP_ECHOREPLY:      return "Echo Reply";
+	case ICMP_DEST_UNREACH:   return "Destination Unreachable";
+	case ICMP_SOURCE_QUENCH:  return "Source Quench";
+	case ICMP_REDIRECT:       return "Redirect (change route)";
+	case ICMP_ECHO:           return "Echo Request";
+	case ICMP_TIME_EXCEEDED:  return "Time Exceeded";
+	case ICMP_PARAMETERPROB:  return "Parameter Problem";
+	case ICMP_TIMESTAMP:      return "Timestamp Request";
+	case ICMP_TIMESTAMPREPLY: return "Timestamp Reply";
+	case ICMP_INFO_REQUEST:   return "Information Request";
+	case ICMP_INFO_REPLY:     return "Information Reply";
+	case ICMP_ADDRESS:        return "Address Mask Request";
+	case ICMP_ADDRESSREPLY:   return "Address Mask Reply";
+	default:                  return "unknown ICMP type";
+	}
+}
+
+#if ENABLE_PING6 || ENABLE_FEATURE_TRACEROUTE_VERBOSE
+/* RFC3542 changed some definitions from RFC2292 for no good reason, whee!
+ * the newer 3542 uses a MLD_ prefix where as 2292 uses ICMP6_ prefix */
+#ifndef MLD_LISTENER_QUERY
+# define MLD_LISTENER_QUERY ICMP6_MEMBERSHIP_QUERY
+#endif
+#ifndef MLD_LISTENER_REPORT
+# define MLD_LISTENER_REPORT ICMP6_MEMBERSHIP_REPORT
+#endif
+#ifndef MLD_LISTENER_REDUCTION
+# define MLD_LISTENER_REDUCTION ICMP6_MEMBERSHIP_REDUCTION
+#endif
+const char *icmp6_type_name(unsigned char id)
+{
+	switch (id) {
+	case ICMP6_DST_UNREACH:      return "Destination Unreachable";
+	case ICMP6_PACKET_TOO_BIG:   return "Packet too big";
+	case ICMP6_TIME_EXCEEDED:    return "Time Exceeded";
+	case ICMP6_PARAM_PROB:       return "Parameter Problem";
+	case ICMP6_ECHO_REPLY:       return "Echo Reply";
+	case ICMP6_ECHO_REQUEST:     return "Echo Request";
+	case MLD_LISTENER_QUERY:     return "Listener Query";
+	case MLD_LISTENER_REPORT:    return "Listener Report";
+	case MLD_LISTENER_REDUCTION: return "Listener Reduction";
+	default:                     return "unknown ICMP type";
+	}
+}
+#endif /* ping6 | traceroute6 */
+
+#if ENABLE_FEATURE_TRACEROUTE_VERBOSE
+int FAST_FUNC bb_icmp_hexdump_if_verbose(const struct icmp *icp, int len, struct sockaddr *from, struct sockaddr *to, int verbose)
+{
+	const unsigned char *p;
+	int i;
+
+	if (!verbose)
+		return 0;
+
+	printf("\n%d bytes from %s to %s: icmp type %u (%s) code %u\n",
+		len,
+		auto_string(xmalloc_sockaddr2dotted_noport(from)),
+		(to && to->sa_family) ? auto_string(xmalloc_sockaddr2dotted_noport(to)) : "?",
+		icp->icmp_type,
+#if ENABLE_PING6 || ENABLE_TRACEROUTE6
+		from->sa_family == AF_INET6 ? icmp6_type_name(icp->icmp_type) :
+#endif
+			icmp_type_name(icp->icmp_type),
+		icp->icmp_code
+	);
+	p = (const void *)icp;
+	for (i = 0; i < len; i++) {
+		if (!(i & 0xf))
+			printf("\n%04x:" + (i==0), i);
+		printf(" %02x", p[i]);
+	}
+	bb_putchar('\n');
+	return 0;
+}
+#endif /* traceroute_verbose */
+#endif /* ping | traceroute */
+
+#endif

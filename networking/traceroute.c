@@ -225,10 +225,10 @@
 //config:config FEATURE_TRACEROUTE_VERBOSE
 //config:	bool "Enable verbose output"
 //config:	default y
-//config:	depends on TRACEROUTE || TRACEROUTE6
+//config:	depends on TRACEROUTE || TRACEROUTE6 || PING || PING6
 //config:	help
-//config:	Add some verbosity to traceroute. This includes among other things
-//config:	hostnames and ICMP response types.
+//config:	Add some verbosity to traceroute and ping. This includes among
+//config:	other things hostnames and ICMP response types.
 //config:
 //config:config FEATURE_TRACEROUTE_USE_ICMP
 //config:	bool "Enable -I option (use ICMP instead of UDP)"
@@ -323,6 +323,9 @@
 #endif
 
 #include "libbb.h"
+#if ENABLE_PLATFORM_MINGW32
+#include "mingw_ip.h"
+#endif
 #include "inet_common.h"
 
 #ifndef IPPROTO_ICMP
@@ -583,6 +586,8 @@ send_probe(int seq, int ttl)
 		bb_error_msg("sent %d octets, ret=%d", len, res);
 }
 
+#if !ENABLE_PLATFORM_MINGW32
+
 #if ENABLE_FEATURE_TRACEROUTE_VERBOSE
 /* Convert an ICMP "type" field to a printable string */
 static const char *
@@ -644,6 +649,8 @@ hexdump_if_verbose(const struct icmp *icp, int len)
 }
 #else
 # define hexdump_if_verbose(...) 0
+#endif
+
 #endif
 
 static int
@@ -729,7 +736,11 @@ packet4_ok(int read_len, int seq)
 		}
 	}
 	/* testcase: traceroute -vI 127.0.0.1 (sees its own echo requests) */
+#if ENABLE_PLATFORM_MINGW32
+	return bb_icmp_hexdump_if_verbose(icp, read_len, &G.from_lsa->u.sa, G.to, verbose);
+#else
 	return hexdump_if_verbose(icp, read_len);
+#endif
 }
 
 #if ENABLE_TRACEROUTE6
@@ -797,7 +808,11 @@ packet6_ok(int read_len, int seq)
 		}
 	}
 	/* cast is safe since the beginning of icmp4 and icmp6 layouts match */
+#if ENABLE_PLATFORM_MINGW32
+	return bb_icmp_hexdump_if_verbose((const struct icmp *)icp, read_len, &G.from_lsa->u.sa, G.to, verbose);
+#else
 	return hexdump_if_verbose((const struct icmp *)icp, read_len);
+#endif
 }
 
 static int

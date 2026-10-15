@@ -52,6 +52,7 @@ lib-y += hash_sha256_hwaccel_x86-64.o
 lib-y += hash_sha256_hwaccel_x86-32.o
 # Alternative (disabled) MD5 implementation
 #lib-y += hash_md5prime.o
+lib-y += inet_common.o
 lib-y += messages.o
 lib-y += mode_string.o
 lib-y += parse_mode.o
@@ -108,7 +109,6 @@ lib-$(CONFIG_PLATFORM_POSIX) += find_root_device.o
 lib-$(CONFIG_PLATFORM_POSIX) += get_console.o
 lib-$(CONFIG_PLATFORM_POSIX) += getpty.o
 lib-$(CONFIG_PLATFORM_POSIX) += get_volsize.o
-lib-$(CONFIG_PLATFORM_POSIX) += inet_common.o
 lib-$(CONFIG_PLATFORM_POSIX) += inode_hash.o
 lib-$(CONFIG_FEATURE_EXTRA_FILE_DATA) += inode_hash.o
 lib-$(CONFIG_PLATFORM_POSIX) += kernel_version.o
