@@ -27,6 +27,15 @@ int INET6_resolve(const char *name, struct sockaddr_in6 *sin6) FAST_FUNC;
 char *INET_rresolve(struct sockaddr_in *s_in, int numeric, uint32_t netmask) FAST_FUNC;
 char *INET6_rresolve(struct sockaddr_in6 *sin6, int numeric) FAST_FUNC;
 
+#if ENABLE_FEATURE_TRACEROUTE_VERBOSE
+int hexdump_if_verbose(const struct icmp *icp, int len, struct sockaddr *from, struct sockaddr *to, int verbose) FAST_FUNC;
+#else
+# define hexdump_if_verbose(...) 0
+#endif
+
+const char *icmp_type_name(unsigned char id);
+const char *icmp6_type_name(unsigned char id);
+
 POP_SAVED_FUNCTION_VISIBILITY
 
 #endif

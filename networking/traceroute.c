@@ -223,9 +223,9 @@
 //config:	Utility to trace the route of IPv6 packets.
 //config:
 //config:config FEATURE_TRACEROUTE_VERBOSE
-//config:	bool "Enable verbose output"
+//config:	bool "Enable verbose output (ping too)"
 //config:	default y
-//config:	depends on TRACEROUTE || TRACEROUTE6
+//config:	depends on TRACEROUTE || TRACEROUTE6 || PING || PING6
 //config:	help
 //config:	Add some verbosity to traceroute. This includes among other things
 //config:	hostnames and ICMP response types.
@@ -583,69 +583,6 @@ send_probe(int seq, int ttl)
 		bb_error_msg("sent %d octets, ret=%d", len, res);
 }
 
-#if ENABLE_FEATURE_TRACEROUTE_VERBOSE
-/* Convert an ICMP "type" field to a printable string */
-static const char *
-pr_type(unsigned char t)
-{
-	static const char *const ttab[] ALIGN_PTR = {
-	"Echo Reply",   "ICMP 1",       "ICMP 2",       "Dest Unreachable",
-	"Source Quench", "Redirect",    "ICMP 6",       "ICMP 7",
-	"Echo",         "Router Advert", "Router Solicit", "Time Exceeded",
-	"Param Problem", "Timestamp",   "Timestamp Reply", "Info Request",
-	"Info Reply",   "Mask Request", "Mask Reply"
-	};
-# if ENABLE_TRACEROUTE6
-	static const char *const ttab6[] ALIGN_PTR = {
-[0]	= "Error", "Dest Unreachable", "Packet Too Big", "Time Exceeded",
-[4]	= "Param Problem",
-[8]	= "Echo Request", "Echo Reply", "Membership Query", "Membership Report",
-[12]	= "Membership Reduction", "Router Solicit", "Router Advert", "Neighbor Solicit",
-[16]	= "Neighbor Advert", "Redirect",
-	};
-
-	if (G_ipv6) {
-		if (t < 5)
-			return ttab6[t];
-		if (t < 128 || t > ND_REDIRECT)
-			return "OUT-OF-RANGE";
-		return ttab6[(t & 63) + 8];
-	}
-# endif
-	if (t >= ARRAY_SIZE(ttab))
-		return "OUT-OF-RANGE";
-
-	return ttab[t];
-}
-static int
-hexdump_if_verbose(const struct icmp *icp, int len)
-{
-	const unsigned char *p;
-	int i;
-
-	if (!verbose)
-		return 0;
-
-	printf("\n%d bytes from %s to %s: icmp type %u (%s) code %u\n",
-		len,
-		auto_string(xmalloc_sockaddr2dotted_noport(&G.from_lsa->u.sa)),
-		auto_string(xmalloc_sockaddr2dotted_noport(G.to)),
-		icp->icmp_type, pr_type(icp->icmp_type),
-		icp->icmp_code
-	);
-	p = (const void *)icp;
-	for (i = 0; i < len; i++) {
-		if (!(i & 0xf))
-			printf("\n%04x:" + (i==0), i);
-		printf(" %02x", p[i]);
-	}
-	bb_putchar('\n');
-	return 0;
-}
-#else
-# define hexdump_if_verbose(...) 0
-#endif
-
 static int
 packet4_ok(int read_len, int seq)
 {
@@ -729,7 +666,7 @@ packet4_ok(int read_len, int seq)
 		}
 	}
 	/* testcase: traceroute -vI 127.0.0.1 (sees its own echo requests) */
-	return hexdump_if_verbose(icp, read_len);
+	return hexdump_if_verbose(icp, read_len, &G.from_lsa->u.sa, G.to, verbose);
 }
 
 #if ENABLE_TRACEROUTE6
@@ -797,7 +734,7 @@ packet6_ok(int read_len, int seq)
 		}
 	}
 	/* cast is safe since the beginning of icmp4 and icmp6 layouts match */
-	return hexdump_if_verbose((const struct icmp *)icp, read_len);
+	return hexdump_if_verbose((const struct icmp *)icp, read_len, &G.from_lsa->u.sa, G.to, verbose);
 }
 
 static int

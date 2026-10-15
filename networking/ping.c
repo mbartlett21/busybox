@@ -129,6 +129,7 @@
 #include <netinet/ip_icmp.h>
 #include "libbb.h"
 #include "common_bufsiz.h"
+#include "inet_common.h"
 
 #ifdef __BIONIC__
 /* should be in netinet/ip_icmp.h */
@@ -600,54 +601,6 @@ static void sendping6(int junk UNUSED_PARAM)
 }
 #endif
 
-static const char *icmp_type_name(int id)
-{
-	switch (id) {
-	case ICMP_ECHOREPLY:      return "Echo Reply";
-	case ICMP_DEST_UNREACH:   return "Destination Unreachable";
-	case ICMP_SOURCE_QUENCH:  return "Source Quench";
-	case ICMP_REDIRECT:       return "Redirect (change route)";
-	case ICMP_ECHO:           return "Echo Request";
-	case ICMP_TIME_EXCEEDED:  return "Time Exceeded";
-	case ICMP_PARAMETERPROB:  return "Parameter Problem";
-	case ICMP_TIMESTAMP:      return "Timestamp Request";
-	case ICMP_TIMESTAMPREPLY: return "Timestamp Reply";
-	case ICMP_INFO_REQUEST:   return "Information Request";
-	case ICMP_INFO_REPLY:     return "Information Reply";
-	case ICMP_ADDRESS:        return "Address Mask Request";
-	case ICMP_ADDRESSREPLY:   return "Address Mask Reply";
-	default:                  return "unknown ICMP type";
-	}
-}
-#if ENABLE_PING6
-/* RFC3542 changed some definitions from RFC2292 for no good reason, whee!
- * the newer 3542 uses a MLD_ prefix where as 2292 uses ICMP6_ prefix */
-#ifndef MLD_LISTENER_QUERY
-# define MLD_LISTENER_QUERY ICMP6_MEMBERSHIP_QUERY
-#endif
-#ifndef MLD_LISTENER_REPORT
-# define MLD_LISTENER_REPORT ICMP6_MEMBERSHIP_REPORT
-#endif
-#ifndef MLD_LISTENER_REDUCTION
-# define MLD_LISTENER_REDUCTION ICMP6_MEMBERSHIP_REDUCTION
-#endif
-static const char *icmp6_type_name(int id)
-{
-	switch (id) {
-	case ICMP6_DST_UNREACH:      return "Destination Unreachable";
-	case ICMP6_PACKET_TOO_BIG:   return "Packet too big";
-	case ICMP6_TIME_EXCEEDED:    return "Time Exceeded";
-	case ICMP6_PARAM_PROB:       return "Parameter Problem";
-	case ICMP6_ECHO_REPLY:       return "Echo Reply";
-	case ICMP6_ECHO_REQUEST:     return "Echo Request";
-	case MLD_LISTENER_QUERY:     return "Listener Query";
-	case MLD_LISTENER_REPORT:    return "Listener Report";
-	case MLD_LISTENER_REDUCTION: return "Listener Reduction";
-	default:                     return "unknown ICMP type";
-	}
-}
-#endif
-
 static void unpack_tail(int sz, uint32_t *tp,
 		const char *from_str,
 		uint16_t recv_seq, int ttl)
@@ -705,7 +658,7 @@ static int unpack4(char *buf, int sz, struct sockaddr_in *from)
 	sz -= hlen;
 	icmppkt = (struct icmp *) (buf + hlen);
 	if (icmppkt->icmp_id != myid)
-		return 0;				/* not our ping */
+		return hexdump_if_verbose(icmppkt, sz, (struct sockaddr *)from, NULL, (option_mask32 & OPT_VERBOSE));
 
 	if (icmppkt->icmp_type == ICMP_ECHOREPLY) {
 		uint16_t recv_seq = ntohs(icmppkt->icmp_seq);
@@ -737,7 +690,7 @@ static int unpack6(char *packet, int sz, struct sockaddr_in6 *from, int hoplimit
 
 	icmppkt = (struct icmp6_hdr *) packet;
 	if (icmppkt->icmp6_id != myid)
-		return 0;				/* not our ping */
+		return hexdump_if_verbose((struct icmp *)icmppkt, sz, (struct sockaddr *)from, NULL, (option_mask32 & OPT_VERBOSE));
 
 	if (icmppkt->icmp6_type == ICMP6_ECHO_REPLY) {
 		uint16_t recv_seq = ntohs(icmppkt->icmp6_seq);
