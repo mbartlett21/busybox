@@ -130,6 +130,9 @@
 #include "libbb.h"
 #include "common_bufsiz.h"
 #include "inet_common.h"
+#if ENABLE_PING6
+# include <netinet/ip6.h>
+#endif
 
 #ifdef __BIONIC__
 /* should be in netinet/ip_icmp.h */
@@ -425,7 +428,7 @@ struct globals {
 	unsigned datalen;
 	unsigned pingcount; /* must be int-sized */
 	unsigned opt_ttl;
-	unsigned long ntransmitted, nreceived, nrepeats;
+	unsigned long ntransmitted, nreceived, nrepeats, nerrored;
 	uint16_t myid;
 	uint8_t pattern;
 	unsigned tmin, tmax; /* in us */
@@ -493,6 +496,8 @@ static void print_stats_and_exit(int junk UNUSED_PARAM)
 		"%lu packets received, ",
 		hostname, G.ntransmitted, nrecv
 	);
+	if (G.nerrored)
+		printf("+%lu errors, ", G.nerrored);
 	if (G.nrepeats)
 		printf("%lu duplicates, ", G.nrepeats);
 	ul = G.ntransmitted;
@@ -657,6 +662,36 @@ static int unpack4(char *buf, int sz, struct sockaddr_in *from)
 	hlen = iphdr->ihl << 2;
 	sz -= hlen;
 	icmppkt = (struct icmp *) (buf + hlen);
+	if ((icmppkt->icmp_type == ICMP_TIME_EXCEEDED && icmppkt->icmp_code == ICMP_TIMXCEED_INTRANS) || icmppkt->icmp_type == ICMP_UNREACH) {
+		/* parse the inside packet to see */
+		const struct ip *hip;
+		struct icmp *hicmp;
+
+		hip = &icmppkt->icmp_ip;
+		hlen = hip->ip_hl << 2;
+
+		hicmp = (struct icmp *)((unsigned char *)hip + hlen);
+		if (hlen + 8 <= sz
+		 && hip->ip_p == IPPROTO_ICMP
+		 && hicmp->icmp_id == myid
+		 && hicmp->icmp_type == ICMP_ECHO
+		 && hip->ip_dst.s_addr == pingaddr.sin.sin_addr.s_addr) {
+			uint16_t recv_seq = ntohs(hicmp->icmp_seq);
+			uint32_t *tp = NULL;
+			char *from_str = inet_ntoa(*(struct in_addr *) &from->sin_addr.s_addr);
+			if ((sz - hlen) >= ICMP_MINLEN + sizeof(uint32_t))
+				tp = (uint32_t *) hicmp->icmp_data;
+			printf("From %s seq=%u %s", from_str, recv_seq, icmp_type_name(icmppkt->icmp_type));
+			if (tp) {
+				unsigned triptime = (int32_t) ((uint32_t)monotonic_us() - *tp);
+				printf(" time=%u.%03u ms", triptime / 1000, triptime % 1000);
+			}
+			bb_putchar('\n');
+			++G.nerrored;
+			fflush_all();
+			return 0;
+		}
+	}
 	if (icmppkt->icmp_id != myid)
 		return hexdump_if_verbose(icmppkt, sz, (struct sockaddr *)from, NULL, (option_mask32 & OPT_VERBOSE));
 
@@ -689,6 +724,38 @@ static int unpack6(char *packet, int sz, struct sockaddr_in6 *from, int hoplimit
 		return 0;
 
 	icmppkt = (struct icmp6_hdr *) packet;
+	if ((icmppkt->icmp6_type == ICMP6_TIME_EXCEEDED && icmppkt->icmp6_code == ICMP6_TIME_EXCEED_TRANSIT) || icmppkt->icmp6_type == ICMP6_DST_UNREACH) {
+		struct ip6_hdr *hip;
+		struct icmp6_hdr *hicmp;
+		int nexthdr;
+
+		hip = (struct ip6_hdr *)(icmppkt + 1);
+		hicmp  = (struct icmp6_hdr *)(hip + 1);
+		nexthdr = hip->ip6_nxt;
+
+		if (nexthdr == IPPROTO_FRAGMENT) {
+			nexthdr = *(unsigned char*)hicmp;
+			hicmp++;
+		}
+		if (nexthdr == IPPROTO_ICMPV6
+		 && hicmp->icmp6_id == myid
+		 && hicmp->icmp6_type == ICMP6_ECHO_REQUEST) {
+			uint16_t recv_seq = ntohs(hicmp->icmp6_seq);
+			uint32_t *tp = NULL;
+			const char *from_str = inet_ntop(AF_INET6, &from->sin6_addr, buf, sizeof(buf));
+			if ((sz - ((void*)hicmp - (void*)icmppkt)) >= sizeof(struct icmp6_hdr) + sizeof(uint32_t))
+				tp = (uint32_t *) &hicmp->icmp6_data8[4];
+			printf("From %s seq=%u %s", from_str, recv_seq, icmp6_type_name(icmppkt->icmp6_type));
+			if (tp) {
+				unsigned triptime = (int32_t) ((uint32_t)monotonic_us() - *tp);
+				printf(" time=%u.%03u ms", triptime / 1000, triptime % 1000);
+			}
+			bb_putchar('\n');
+			++G.nerrored;
+			fflush_all();
+			return 0;
+		}
+	}
 	if (icmppkt->icmp6_id != myid)
 		return hexdump_if_verbose((struct icmp *)icmppkt, sz, (struct sockaddr *)from, NULL, (option_mask32 & OPT_VERBOSE));
 
@@ -759,7 +826,7 @@ static void ping4(len_and_sockaddr *lsa)
 			continue;
 		}
 		c = unpack4(G.rcv_packet, c, &from);
-		if (pingcount && G.nreceived >= pingcount)
+		if (pingcount && G.nreceived + G.nerrored >= pingcount)
 			break;
 		if (c && (option_mask32 & OPT_A)) {
 			goto send_ping;
@@ -850,7 +917,7 @@ static void ping6(len_and_sockaddr *lsa)
 			}
 		}
 		c = unpack6(G.rcv_packet, c, &from, hoplimit);
-		if (pingcount && G.nreceived >= pingcount)
+		if (pingcount && G.nreceived + G.nerrored >= pingcount)
 			break;
 		if (c && (option_mask32 & OPT_A)) {
 			goto send_ping;
