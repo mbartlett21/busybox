@@ -721,7 +721,7 @@ packet6_ok(int read_len, int seq)
 			nexthdr = *(unsigned char*)up;
 			up++;
 		}
-		if (nexthdr == IPPROTO_UDP) {
+		if (nexthdr == IPPROTO_UDP || nexthdr == IPPROTO_ICMPV6) {
 			struct outdata6_t *pkt;
 
 			pkt = (struct outdata6_t *) (up + 1);
