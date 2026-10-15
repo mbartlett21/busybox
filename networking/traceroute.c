@@ -869,7 +869,11 @@ print(int read_len)
 			read_len -= ip4packet->ip_hl << 2;
 		}
 		printf(" %d bytes to %s", read_len,
+#if ENABLE_PLATFORM_MINGW32
+			G.to->sa_family ? auto_string(xmalloc_sockaddr2dotted_noport(G.to)) : "?"
+#else
 			auto_string(xmalloc_sockaddr2dotted_noport(G.to))
+#endif
 		);
 	}
 #endif
