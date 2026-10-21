@@ -2773,10 +2773,17 @@ static void handle_incoming_and_exit(const len_and_sockaddr *fromAddr)
 
 #if ENABLE_FEATURE_HTTPD_CGI
 	if (cgi_type != CGI_NONE) {
+		const char *orig_uri = urlcopy;
+#if ENABLE_FEATURE_HTTPD_CONFIG_WITH_SCRIPT_INTERPR
+		if (cgi_type == CGI_INTERPRETER && urlp[-1] == '/') {
+			orig_uri = xstrdup(urlcopy);
+			urlp[0] = index_page[0];
+		}
+#endif
 		send_cgi_and_exit(
 			(cgi_type == CGI_INDEX) ? "/cgi-bin/index.cgi"
 			/*CGI_NORMAL or CGI_INTERPRETER*/ : urlcopy,
-			urlcopy, prequest
+			orig_uri, prequest
 		);
 	}
 #endif
