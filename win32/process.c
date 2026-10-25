@@ -737,6 +737,54 @@ void get_process_times(DWORD pid, unsigned long* start_time,
 	}
 }
 
+static void get_process_mem(DWORD pid, unsigned long *vsz, unsigned long *rss)
+{
+	DECLARE_PROC_ADDR(BOOL, GetProcessMemoryInfo, HANDLE, PPROCESS_MEMORY_COUNTERS, DWORD);
+	HANDLE proc;
+	DWORD flag = PROCESS_QUERY_LIMITED_INFORMATION;
+	PROCESS_MEMORY_COUNTERS memcnt;
+
+	if (!INIT_PROC_ADDR(psapi.dll, GetProcessMemoryInfo))
+		return;
+
+retry:
+	if ((proc=OpenProcess(flag, FALSE, pid))) {
+		memset(&memcnt, 0, sizeof(memcnt));
+		memcnt.cb = sizeof(memcnt);
+		if (!GetProcessMemoryInfo(proc, &memcnt, sizeof(memcnt))) {
+			goto finish;
+		}
+
+		/* PagefileUsage doesn't include mapped files, since the backing file
+		   for them isn't the pagefile.
+
+		   Quote from https://en.wikipedia.org/wiki/Commit_charge
+
+		   > The commit charge for each process does not include other major
+		   > contributions to the process's virtual address space, such as
+		   > mapped files. For this reason, the process's working set (the
+		   > portion of its address space that can be referenced without
+		   > incurring a page fault) may be larger or smaller than its
+		   > contribution to total commit charge, and the total commit
+		   > charge is not inclusive of the total memory (physical or
+		   > virtual) actually in use.
+
+		   But for simplicity I have just left it as PagefileUsage, so it will
+		   match what is shown in Task Manager, even though often the value is
+		   less than WorkingSetSize.
+		*/
+		*vsz = memcnt.PagefileUsage  >> 10;
+		*rss = memcnt.WorkingSetSize >> 10;
+
+finish:
+		CloseHandle(proc);
+	} else if (flag == PROCESS_QUERY_LIMITED_INFORMATION) {
+		/* according to docs, XP requires PROCESS_VM_READ */
+		flag = PROCESS_QUERY_INFORMATION|PROCESS_VM_READ;
+		goto retry;
+	}
+}
+
 /* POSIX version in libbb/procps.c */
 procps_status_t* FAST_FUNC procps_scan(procps_status_t* sp, int flags
 #if !ENABLE_FEATURE_PS_TIME && !ENABLE_FEATURE_PS_LONG
@@ -851,6 +899,9 @@ UNUSED_PARAM
 		}
 		safe_strncpy(sp->comm, comm, COMM_LEN);
 	}
+
+	if (flags & (PSSCAN_RSS | PSSCAN_VSZ))
+		get_process_mem(sp->pid, &sp->vsz, &sp->rss);
 
 	return sp;
 }
